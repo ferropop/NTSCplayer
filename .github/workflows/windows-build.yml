@@ -28,6 +28,15 @@ jobs:
           if (-not $project) { throw "Could not locate the Windows Cargo project." }
           "PROJECT_DIR=$($project.Directory.FullName)" >> $env:GITHUB_ENV
 
+          # Compatibility correction discovered by the first Windows compiler pass.
+          $shader = Join-Path $project.Directory.FullName "src\shader.rs"
+          $source = Get-Content $shader -Raw
+          $source = $source.Replace(
+            'let mapped = images.readback.slice(..).get_mapped_range();',
+            'let mapped = images.readback.slice(..).get_mapped_range().map_err(|e| format!("Shader readback view failed: {e}"))?;'
+          )
+          Set-Content $shader $source
+
       - name: Check Windows build
         shell: pwsh
         working-directory: ${{ env.PROJECT_DIR }}
