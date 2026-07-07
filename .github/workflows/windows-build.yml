@@ -4,66 +4,73 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-
-permissions:
-  contents: read
+    paths:
+      - 'NTSC-Player-Windows-Port-Source-v4.zip'
+      - '.github/workflows/windows-build.yml'
 
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Expand Windows source
         shell: pwsh
         run: |
-          Expand-Archive NTSC-Player-Windows-Port-Source-v2.zip -DestinationPath source
+          Expand-Archive NTSC-Player-Windows-Port-Source-v4.zip source
           $project = Get-ChildItem source -Recurse -Filter Cargo.toml |
-            Where-Object { $_.Directory.Name -eq 'ntsc-win-self-contained-v2' } |
+            Where-Object { $_.FullName -match 'NtscPlayerWindows[\\/]Cargo.toml$' } |
             Select-Object -First 1
-          if (-not $project) { throw 'Windows source Cargo.toml not found' }
-          "PROJECT_DIR=$($project.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Apply Windows compiler corrections
+          if (-not $project) { throw "Could not locate the Windows Cargo project." }
+          "PROJECT_DIR=$($project.Directory.FullName)" >> $env:GITHUB_ENV
+
+      - name: Check Windows build
         shell: pwsh
-        run: |
-          $file = "$env:PROJECT_DIR\src\mpv.rs"
-          $source = Get-Content $file -Raw
-          $source = $source.Replace('(self.set_property)(self.handle, args[0].as_ptr(), 1, &mut value);', '(self.set_property)(self.handle, args[0].as_ptr(), 1, value);')
-          Set-Content $file $source
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ env.PROJECT_DIR }}
-      - name: Check source
-        shell: pwsh
-        run: cargo check --manifest-path "$env:PROJECT_DIR\Cargo.toml" --target x86_64-pc-windows-msvc
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: cargo check
+
       - name: Build release
         shell: pwsh
-        run: cargo build --release --manifest-path "$env:PROJECT_DIR\Cargo.toml" --target x86_64-pc-windows-msvc
-      - name: Download x64 libmpv
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: cargo build --release
+
+      - name: Download official RetroArch shaders
         shell: pwsh
         run: |
-          $release = Invoke-RestMethod -Headers @{ "User-Agent" = "NTSC-Player-Windows-Build" } -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
-          $asset = $release.assets | Where-Object { $_.name -match '^mpv-dev-x86_64-[0-9].*\.7z$' } | Select-Object -First 1
-          if (-not $asset) { throw 'No standard x64 libmpv archive found' }
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mpv-runtime.7z
-          New-Item -ItemType Directory -Force mpv-runtime | Out-Null
-          7z x mpv-runtime.7z -ompv-runtime -y
-          $dll = Get-ChildItem mpv-runtime -Recurse -File | Where-Object { $_.Name -in @('mpv-2.dll','libmpv-2.dll') } | Select-Object -First 1
-          if (-not $dll) { throw 'libmpv DLL not found in archive' }
-          New-Item -ItemType Directory -Force "dist\NTSC Player" | Out-Null
-          Copy-Item $dll.FullName "dist\NTSC Player\mpv-2.dll"
+          git clone --depth 1 https://github.com/libretro/slang-shaders.git "$env:PROJECT_DIR\vendor\slang-shaders"
+          Remove-Item "$env:PROJECT_DIR\vendor\slang-shaders\.git" -Recurse -Force
+
+      - name: Download libmpv
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest
+          $asset = $release.assets |
+            Where-Object { $_.name -match 'mpv-dev-x86_64.*\.7z$' } |
+            Select-Object -First 1
+          if (-not $asset) { throw "Could not find the current x64 libmpv development archive." }
+          Invoke-WebRequest $asset.browser_download_url -OutFile mpv.7z
+          7z x mpv.7z -ompv | Out-Null
+          $dll = Get-ChildItem mpv -Recurse -Filter mpv-2.dll | Select-Object -First 1
+          if (-not $dll) { $dll = Get-ChildItem mpv -Recurse -Filter libmpv-2.dll | Select-Object -First 1 }
+          if (-not $dll) { throw "libmpv DLL was not found." }
+          "MPV_DLL=$($dll.FullName)" >> $env:GITHUB_ENV
+
       - name: Package portable app
         shell: pwsh
         run: |
-          Copy-Item "$env:PROJECT_DIR\target\x86_64-pc-windows-msvc\release\ntsc-player-windows.exe" "dist\NTSC Player\NTSC Player.exe"
-          Copy-Item "$env:PROJECT_DIR\README.md" "dist\NTSC Player\README.txt"
-          Compress-Archive -Path "dist\NTSC Player\*" -DestinationPath "dist\NTSC-Player-Windows-x64.zip" -CompressionLevel Optimal
+          $dist = Join-Path $PWD "dist\NTSC Player Windows"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item "$env:PROJECT_DIR\target\release\ntsc-player-windows.exe" "$dist\NTSC Player.exe"
+          Copy-Item "$env:MPV_DLL" "$dist\mpv-2.dll"
+          Copy-Item "$env:PROJECT_DIR\README.md" "$dist\README.txt"
+          Copy-Item "$env:PROJECT_DIR\vendor\slang-shaders" "$dist\slang-shaders" -Recurse
+          Compress-Archive -Path "$dist\*" -DestinationPath NTSC-Player-Windows-x64.zip -CompressionLevel Optimal
+
       - uses: actions/upload-artifact@v4
         with:
           name: NTSC-Player-Windows-x64
-          path: dist/NTSC-Player-Windows-x64.zip
-          if-no-files-found: error
-          retention-days: 30
+          path: NTSC-Player-Windows-x64.zip
