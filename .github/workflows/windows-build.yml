@@ -1,5 +1,7 @@
 name: Build Windows x64
 
+# Triggered for a fresh portable build.
+
 on:
   workflow_dispatch:
   push:
