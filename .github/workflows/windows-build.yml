@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'NTSC-Player-Windows-Port-Source-v12.zip'
+      - 'NTSC-Player-Windows-Port-Source-v13.zip'
       - '.github/workflows/windows-build.yml'
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
       - name: Expand player source
         shell: pwsh
         run: |
-          Expand-Archive NTSC-Player-Windows-Port-Source-v12.zip source
+          Expand-Archive NTSC-Player-Windows-Port-Source-v13.zip source
           $project = Get-ChildItem source -Recurse -Filter Cargo.toml |
             Where-Object { $_.FullName -match 'NtscPlayerWindows[\\/]Cargo.toml$' } |
             Select-Object -First 1
