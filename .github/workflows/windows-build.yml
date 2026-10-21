@@ -5,9 +5,10 @@ name: Build Windows x64
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, experiment/effects-resolution]
     paths:
       - 'NTSC-Player-Windows-Port-Source-v16.zip'
+      - 'NTSC-Player-Windows-Port-Source-v17.zip'
       - '.github/workflows/windows-build.yml'
 
 permissions:
@@ -28,7 +29,7 @@ jobs:
       - name: Expand player source
         shell: pwsh
         run: |
-          Expand-Archive NTSC-Player-Windows-Port-Source-v16.zip source
+          Expand-Archive NTSC-Player-Windows-Port-Source-v17.zip source
           $project = Get-ChildItem source -Recurse -Filter Cargo.toml |
             Where-Object { $_.FullName -match 'NtscPlayerWindows[\\/]Cargo.toml$' } |
             Select-Object -First 1
